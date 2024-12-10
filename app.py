@@ -6,6 +6,7 @@ from torchvision import models, transforms
 from sklearn.metrics.pairwise import cosine_similarity
 import torch
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+import numpy as np
 
 # Load BERT tokenizer and model
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
@@ -30,7 +31,7 @@ def preprocess_image(image):
     image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
     return image_tensor
 
-# Function to extract features (as defined earlier)
+# Function to extract features from image
 def extract_features(image):
     """Extract features from the image using ResNet."""
     image_tensor = preprocess_image(image)
@@ -38,43 +39,6 @@ def extract_features(image):
         features = resnet_model(image_tensor)
     return features
 
-
-# Function to generate a report using BERT
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-
-def generate_report(image):
-    """Generate a report based on image features and closest matching annotation."""
-    features = extract_features(image)  # Extract features from the image
-    
-    # Preprocess annotation reports
-    annotation_embeddings = []
-    annotation_texts = []
-
-    # Loop through the dataset and get reports from the list of dictionaries
-    for annotation in annotations["train"]:
-        report = annotation["report"]  # Get the report text
-        report_id = annotation["id"]  # Get the report id (optional, can be used for logging)
-        
-        # Tokenize and embed annotation reports
-        inputs = tokenizer(report, return_tensors="pt", truncation=True, padding="max_length", max_length=512)
-        with torch.no_grad():
-            # Example to obtain the report embeddings (can be changed based on your model)
-            embedding = resnet_model.fc(inputs['input_ids']).mean(dim=1)  # Adjust this to your actual model
-        annotation_embeddings.append(embedding.numpy())
-        annotation_texts.append(report)
-
-    # Convert annotation embeddings to a matrix
-    annotation_matrix = np.vstack(annotation_embeddings)
-
-    # Compute similarity between image features and annotations
-    with torch.no_grad():
-        image_embedding = features.mean(dim=1).numpy()  # Use the extracted features
-    similarities = cosine_similarity(image_embedding, annotation_matrix)
-
-    # Find the most similar report
-    most_similar_idx = np.argmax(similarities)
-    return annotation_texts[most_similar_idx]  # Return the closest report
 # Function to normalize text
 def normalize_text(text):
     return text.lower().strip()
@@ -98,12 +62,36 @@ def load_annotations(json_path):
 # Example annotation file path (replace with your path)
 annotations = load_annotations("annotation.json")  # Path to your annotation.json
 
-reference_reports = []
-for dataset in ["train", "test", "val"]:
-    if dataset in annotations:
-        # Directly extend if it's a list
-        reference_reports.extend(annotations[dataset])
+# Generate report function
+def generate_report(image):
+    """Generate a report based on image features and closest matching annotation."""
+    features = extract_features(image)  # Extract features from the image
+    
+    # Preprocess annotation reports
+    annotation_embeddings = []
+    annotation_texts = []
 
+    for annotation in annotations["train"]:
+        report = annotation["report"]  # Get the report text
+        inputs = tokenizer(report, return_tensors="pt", truncation=True, padding="max_length", max_length=512)
+        with torch.no_grad():
+            # Convert input IDs to float for compatibility
+            float_inputs = inputs['input_ids'].float()
+            embedding = bert_model.embeddings.word_embeddings(float_inputs).mean(dim=1)  # Extract BERT embeddings
+        annotation_embeddings.append(embedding.numpy())
+        annotation_texts.append(report)
+
+    # Convert annotation embeddings to a matrix
+    annotation_matrix = np.vstack(annotation_embeddings)
+
+    # Compute similarity between image features and annotations
+    with torch.no_grad():
+        image_embedding = features.mean(dim=1).numpy()  # Use the extracted features
+    similarities = cosine_similarity(image_embedding, annotation_matrix)
+
+    # Find the most similar report
+    most_similar_idx = np.argmax(similarities)
+    return annotation_texts[most_similar_idx]
 
 # Streamlit app layout
 st.markdown("<h1 style='color: #2E86C1; text-align: center;'>Chest X-Ray Analysis</h1>", unsafe_allow_html=True)
@@ -127,6 +115,7 @@ if uploaded_image:
         st.markdown("<h3 style='color: #B9770E;'>BLEU Score</h3>", unsafe_allow_html=True)
         
         # Compute BLEU score
+        reference_reports = [annotation["report"] for annotation in annotations["train"]]  # Use reports from train dataset
         bleu_score = compute_bleu(reference_reports, [generated_report])
         st.markdown(f"<div style='background-color: #26da6c; padding: 10px; border-radius: 5px; text-align: center;'><b>{bleu_score:.4f}</b></div>", unsafe_allow_html=True)
     except Exception as e:
