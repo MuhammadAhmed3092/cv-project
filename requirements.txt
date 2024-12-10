@@ -1,1 +1,8 @@
-
+torch
+torchvision
+transformers
+Pillow
+numpy
+nltk
+tqdm
+streamlit
