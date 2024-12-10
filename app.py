@@ -46,7 +46,6 @@ def display_app():
             </div>
         """, unsafe_allow_html=True)
         st.text(report)
-        )
     else:
         st.markdown("""
             <div style="text-align: center; padding: 20px; background-color: #E63946; border-radius: 10px;">
