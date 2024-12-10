@@ -1,122 +1,65 @@
 import streamlit as st
-import json
 from PIL import Image
-from transformers import AutoTokenizer, AutoModel
-from torchvision import models, transforms
-from sklearn.metrics.pairwise import cosine_similarity
-import torch
-from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
-import numpy as np
+import io
+from model import generate_bleu_score_and_report  # Import function from model.py
 
-# Load BERT tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-bert_model = AutoModel.from_pretrained("bert-base-uncased")
-bert_model.eval()
+# Function to display the Streamlit app
+def display_app():
+    st.set_page_config(page_title="IU X-Ray Analysis", layout="wide")
 
-# Initialize ResNet model for image feature extraction
-resnet_model = models.resnet101(pretrained=True)
-resnet_model.eval()
+    # Header section
+    st.markdown("""
+        <div style="text-align: center; background-color: #1E3A8A; padding: 30px 15px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            <h1 style="color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 36px;">IU X-Ray Analysis</h1>
+            <p style="color: #f8f9fa; font-size: 18px; font-family: Arial, sans-serif;">Upload an X-ray image to analyze the BLEU score and generate a detailed report.</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-# Define image transformations
-transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
+    # Upload image section
+    uploaded_file = st.file_uploader("Upload an X-ray image (JPG/PNG)", type=["jpg", "png"], label_visibility="collapsed")
 
-# Function to preprocess image
-def preprocess_image(image):
-    """Preprocess the input image."""
-    image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
-    return image_tensor
+    if uploaded_file is not None:
+        # Load image
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Uploaded X-Ray Image", use_column_width=True)
 
-# Function to extract features from image
-def extract_features(image):
-    """Extract features from the image using ResNet."""
-    image_tensor = preprocess_image(image)
-    with torch.no_grad():
-        features = resnet_model(image_tensor)
-    return features
+        # Placeholder for results
+        with st.spinner("Processing image..."):
+            # Set reference reports for BLEU calculation (dummy reference used here)
+            reference_reports = [["The cardiac silhouette and mediastinum size are within normal limits."]]
+            
+            # Fetch the result from the model
+            bleu_score, report = generate_bleu_score_and_report(uploaded_file, reference_reports)
 
-# Function to normalize text
-def normalize_text(text):
-    return text.lower().strip()
+        # Display BLEU score in a stylish card
+        st.markdown("""
+            <div style="text-align: center; margin-top: 30px; padding: 20px; background-color: #48C9B0; border-radius: 15px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                <h3 style="color: #1D4F5D; font-size: 28px;">BLEU Score</h3>
+                <p style="font-size: 24px; color: white; font-weight: bold;">{}</p>
+            </div>
+        """.format(bleu_score), unsafe_allow_html=True)
 
-# Function to compute BLEU score using corpus_bleu
-def compute_bleu(reference_reports, generated_reports):
-    """
-    Compute the BLEU score for generated reports against reference reports.
-    """
-    reference_reports = [[normalize_text(ref).split()] for ref in reference_reports]  # Tokenize references
-    generated_reports = [normalize_text(gen).split() for gen in generated_reports]  # Tokenize predictions
-    smoothie = SmoothingFunction().method4
-    return corpus_bleu(reference_reports, generated_reports, smoothing_function=smoothie)
+        # Display the report in a nice section
+        st.markdown("<h3 style='text-align: center; margin-top: 40px; color: #1E3A8A;'>Generated Report</h3>", unsafe_allow_html=True)
+        st.text(report)
 
-# Load annotations from JSON
-@st.cache_data
-def load_annotations(json_path):
-    with open(json_path, 'r') as file:
-        return json.load(file)
+        # Allow downloading of the report in a stylish button
+        report_bytes = io.BytesIO(report.encode())
+        st.download_button(
+            label="Download Report",
+            data=report_bytes,
+            file_name="xray_report.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
 
-# Example annotation file path (replace with your path)
-annotations = load_annotations("annotation.json")  # Path to your annotation.json
+    else:
+        st.markdown("""
+            <div style="text-align: center; padding: 40px; background-color: #A7C7E7; border-radius: 15px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                <h4 style="color: #023e8a; font-family: Arial, sans-serif;">Please upload an X-ray image to proceed.</h4>
+            </div>
+        """, unsafe_allow_html=True)
 
-# Generate report function
-def generate_report(image):
-    """Generate a report based on image features and closest matching annotation."""
-    features = extract_features(image)  # Extract features from the image
-    
-    # Preprocess annotation reports
-    annotation_embeddings = []
-    annotation_texts = []
-
-    for annotation in annotations["train"]:
-        report = annotation["report"]  # Get the report text
-        inputs = tokenizer(report, return_tensors="pt", truncation=True, padding="max_length", max_length=512)
-        with torch.no_grad():
-            # Convert input IDs to float for compatibility
-            float_inputs = inputs['input_ids'].float()
-            embedding = bert_model.embeddings.word_embeddings(float_inputs).mean(dim=1)  # Extract BERT embeddings
-        annotation_embeddings.append(embedding.numpy())
-        annotation_texts.append(report)
-
-    # Convert annotation embeddings to a matrix
-    annotation_matrix = np.vstack(annotation_embeddings)
-
-    # Compute similarity between image features and annotations
-    with torch.no_grad():
-        image_embedding = features.mean(dim=1).numpy()  # Use the extracted features
-    similarities = cosine_similarity(image_embedding, annotation_matrix)
-
-    # Find the most similar report
-    most_similar_idx = np.argmax(similarities)
-    return annotation_texts[most_similar_idx]
-
-# Streamlit app layout
-st.markdown("<h1 style='color: #2E86C1; text-align: center;'>Chest X-Ray Analysis</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>Upload a chest X-ray image to generate a report and evaluate its quality with a BLEU score.</p>", unsafe_allow_html=True)
-
-# Image upload
-uploaded_image = st.file_uploader("Upload Chest X-Ray Image", type=["jpg", "jpeg", "png"])
-
-if uploaded_image:
-    try:
-        # Load and display the image
-        image = Image.open(uploaded_image).convert("RGB")
-        st.image(image, caption="Uploaded Image", use_column_width=True)
-        
-        # Generate report
-        st.markdown("<h3 style='color: #117A65;'>Generated Report</h3>", unsafe_allow_html=True)
-        generated_report = generate_report(image)
-        st.markdown(f"<div style='background-color: #2e86c1; padding: 10px; border-radius: 5px;'>{generated_report}</div>", unsafe_allow_html=True)
-        
-        # BLEU score calculation
-        st.markdown("<h3 style='color: #B9770E;'>BLEU Score</h3>", unsafe_allow_html=True)
-        
-        # Compute BLEU score
-        reference_reports = [annotation["report"] for annotation in annotations["train"]]  # Use reports from train dataset
-        bleu_score = compute_bleu(reference_reports, [generated_report])
-        st.markdown(f"<div style='background-color: #26da6c; padding: 10px; border-radius: 5px; text-align: center;'><b>{bleu_score:.4f}</b></div>", unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+# Run the Streamlit app
+if __name__ == "__main__":
+    display_app()
