@@ -16,7 +16,7 @@ def display_app():
     """, unsafe_allow_html=True)
 
     # Upload image section
-    uploaded_file = st.file_uploader("Upload an X-ray image (JPG/PNG)", type=["jpg", "png"])
+    uploaded_file = st.file_uploader("Upload an X-ray Chest image (JPG/PNG)", type=["jpg", "png"])
 
     if uploaded_file is not None:
         # Load image
