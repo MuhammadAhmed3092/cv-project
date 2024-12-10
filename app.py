@@ -11,7 +11,7 @@ def display_app():
     st.markdown("""
         <div style="text-align: center; background-color: #264653; padding: 20px; border-radius: 15px;">
             <h1 style="color: #E9C46A; font-family: Arial, sans-serif;">IU X-Ray Analysis</h1>
-            <p style="color: #F4A261;">Upload an X-ray image to analyze BLEU score and generate a detailed report.</p>
+            <p style="color: #F4A261;">Upload an X-ray image to provide analyzed report and BLEU score.</p>
         </div>
     """, unsafe_allow_html=True)
 
@@ -32,12 +32,7 @@ def display_app():
             bleu_score, report = generate_bleu_score_and_report(uploaded_file, reference_reports)
 
         # Display BLEU score
-        st.markdown(f"""
-            <div style="text-align: center; margin-top: 20px; padding: 20px; background-color: #2A9D8F; border-radius: 10px;">
-                <h3 style="color: white;">BLEU Score</h3>
-                <p style="font-size: 24px; color: #E76F51;">{bleu_score}</p>
-            </div>
-        """, unsafe_allow_html=True)
+        st.write('BLEU Score : ' ,bleu_score)
 
         # Display the report
         st.markdown("""
