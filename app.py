@@ -46,14 +46,6 @@ def display_app():
             </div>
         """, unsafe_allow_html=True)
         st.text(report)
-
-        # Allow downloading of the report
-        report_bytes = io.BytesIO(report.encode())
-        st.download_button(
-            label="Download Report",
-            data=report_bytes,
-            file_name="xray_report.txt",
-            mime="text/plain"
         )
     else:
         st.markdown("""
